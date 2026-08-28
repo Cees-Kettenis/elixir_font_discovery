@@ -79,7 +79,7 @@ jobs:
           cp "${output_dir}/${source_name}" "${output_dir}/${library_name}"
           tar -czf "${archive_name}" -C "${output_dir}" "${library_name}"
           echo "file-name=${archive_name}" >> "${GITHUB_OUTPUT}"
-          echo "file-path=${PWD}/${archive_name}" >> "${GITHUB_OUTPUT}"
+          echo "file-path=${archive_name}" >> "${GITHUB_OUTPUT}"
 
       - uses: actions/attest@v4
         with:
