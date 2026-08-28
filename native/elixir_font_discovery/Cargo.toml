@@ -1,0 +1,22 @@
+[package]
+name = "elixir_font_discovery"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+description = "Native installed-font discovery for Elixir Font Discovery"
+repository = "https://github.com/Cees-Kettenis/elixir_font_discovery"
+
+[lib]
+name = "elixir_font_discovery"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+font-kit = "0.14.3"
+rustler = { version = "0.36.2", default-features = false, features = ["derive", "nif_version_2_15"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = "symbols"

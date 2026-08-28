@@ -1,0 +1,70 @@
+name: Build precompiled NIFs
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  build-release:
+    name: NIF ${{ matrix.nif }} - ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        nif: ["2.15"]
+        job:
+          - {target: aarch64-apple-darwin, os: macos-15}
+          - {target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm}
+          - {target: x86_64-apple-darwin, os: macos-15-intel}
+          - {target: x86_64-pc-windows-gnu, os: windows-2022}
+          - {target: x86_64-pc-windows-msvc, os: windows-2022}
+          - {target: x86_64-unknown-linux-gnu, os: ubuntu-22.04}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read project version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^[[:space:]]*@version "\([^"]*\)"/\1/p' mix.exs | head -n 1)
+          echo "PROJECT_VERSION=${version}" >> "${GITHUB_ENV}"
+
+      - name: Install Linux font dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev libfreetype6-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@1.85.1
+        with:
+          target: ${{ matrix.job.target }}
+
+      - name: Build native archive
+        id: build-crate
+        uses: philss/rustler-precompiled-action@v1.1.5
+        with:
+          project-name: elixir_font_discovery
+          project-version: ${{ env.PROJECT_VERSION }}
+          target: ${{ matrix.job.target }}
+          nif-version: ${{ matrix.nif }}
+          project-dir: native/elixir_font_discovery
+
+      - uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.build-crate.outputs.file-path }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build-crate.outputs.file-name }}
+          path: ${{ steps.build-crate.outputs.file-path }}
+
+      - name: Attach archive to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.build-crate.outputs.file-path }}

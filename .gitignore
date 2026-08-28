@@ -1,0 +1,9 @@
+/_build/
+/cover/
+/deps/
+/doc/
+/.elixir_ls/
+/erl_crash.dump
+/elixir_font_discovery-*.tar
+/native/elixir_font_discovery/target/
+/priv/native/

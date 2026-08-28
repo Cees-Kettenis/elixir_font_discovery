@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native-tests:
+    name: Native fonts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+    env:
+      ELIXIR_FONT_DISCOVERY_BUILD: "true"
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.20"
+
+      - uses: dtolnay/rust-toolchain@1.85.1
+        with:
+          components: clippy, rustfmt
+
+      - name: Install Linux font dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fontconfig fonts-liberation libfontconfig1-dev libfreetype6-dev pkg-config
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test --warnings-as-errors
+
+      - name: Check Elixir formatting
+        if: runner.os == 'Linux'
+        run: mix format --check-formatted
+
+      - name: Test and lint Rust
+        if: runner.os == 'Linux'
+        run: |
+          cargo test --manifest-path native/elixir_font_discovery/Cargo.toml
+          cargo fmt --manifest-path native/elixir_font_discovery/Cargo.toml -- --check
+          cargo clippy --manifest-path native/elixir_font_discovery/Cargo.toml --all-targets -- -D warnings
