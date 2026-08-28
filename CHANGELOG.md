@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 - 2026-08-28
+
+- Allowed RustlerPrecompiled 0.8 so applications can share the dependency with libraries such as `resvg`.
+
 ## 0.1.0 - 2026-08-28
 
 - Added installed-font discovery through Fontconfig, CoreText, and DirectWrite.
