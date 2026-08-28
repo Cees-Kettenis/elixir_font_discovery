@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-08-28
 
 - Added installed-font discovery through Fontconfig, CoreText, and DirectWrite.
 - Added generic CSS family matching and weight/style selection.
