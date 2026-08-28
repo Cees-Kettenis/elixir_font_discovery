@@ -47,13 +47,39 @@ jobs:
 
       - name: Build native archive
         id: build-crate
-        uses: philss/rustler-precompiled-action@v1.1.5
-        with:
-          project-name: elixir_font_discovery
-          project-version: ${{ env.PROJECT_VERSION }}
-          target: ${{ matrix.job.target }}
-          nif-version: ${{ matrix.nif }}
-          project-dir: native/elixir_font_discovery
+        shell: bash
+        env:
+          NIF_VERSION: ${{ matrix.nif }}
+          TARGET: ${{ matrix.job.target }}
+        run: |
+          cargo build \
+            --locked \
+            --manifest-path native/elixir_font_discovery/Cargo.toml \
+            --release \
+            --target "${TARGET}"
+
+          output_dir="native/elixir_font_discovery/target/${TARGET}/release"
+
+          case "${TARGET}" in
+            *-apple-*)
+              source_name="libelixir_font_discovery.dylib"
+              library_name="libelixir_font_discovery-v${PROJECT_VERSION}-nif-${NIF_VERSION}-${TARGET}.so"
+              ;;
+            *-pc-windows-*)
+              source_name="elixir_font_discovery.dll"
+              library_name="elixir_font_discovery-v${PROJECT_VERSION}-nif-${NIF_VERSION}-${TARGET}.dll"
+              ;;
+            *)
+              source_name="libelixir_font_discovery.so"
+              library_name="libelixir_font_discovery-v${PROJECT_VERSION}-nif-${NIF_VERSION}-${TARGET}.so"
+              ;;
+          esac
+
+          archive_name="${library_name}.tar.gz"
+          cp "${output_dir}/${source_name}" "${output_dir}/${library_name}"
+          tar -czf "${archive_name}" -C "${output_dir}" "${library_name}"
+          echo "file-name=${archive_name}" >> "${GITHUB_OUTPUT}"
+          echo "file-path=${PWD}/${archive_name}" >> "${GITHUB_OUTPUT}"
 
       - uses: actions/attest@v4
         with:
