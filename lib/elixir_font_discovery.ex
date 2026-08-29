@@ -26,6 +26,7 @@ defmodule ElixirFontDiscovery do
           | :invalid_weight
           | :invalid_style
           | :not_found
+          | :unsupported_font
           | :unavailable
 
   @doc """
@@ -45,6 +46,8 @@ defmodule ElixirFontDiscovery do
   `weight` must be between 1 and 1000. The accepted styles are `:normal`,
   `:italic`, and `:oblique`. The returned family, weight, and style describe the
   face selected by the operating system, which can differ from the request.
+  Variable fonts return `{:error, :unsupported_font}` because their selected
+  variation cannot be represented by unchanged font-file bytes.
   """
   @spec resolve(String.t(), number(), style()) :: {:ok, font()} | {:error, reason()}
   def resolve(family, weight, style) do

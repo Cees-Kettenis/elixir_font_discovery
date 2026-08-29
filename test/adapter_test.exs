@@ -8,6 +8,7 @@ defmodule ElixirFontDiscovery.AdapterTest do
       case Process.get(:font_discovery_native_result) do
         :font -> {:ok, "Installed Sans", 650.0, :oblique, "font"}
         :missing -> {:error, :not_found}
+        :unsupported -> {:error, :unsupported_font}
         :unexpected -> {:ok, nil}
         :raise -> :erlang.nif_error(:nif_not_loaded)
         :exit -> exit(:native_failure)
@@ -26,6 +27,13 @@ defmodule ElixirFontDiscovery.AdapterTest do
     Process.put(:font_discovery_native_result, :missing)
 
     assert Adapter.resolve("missing", 400, :normal, FakeNative) == {:error, :not_found}
+  end
+
+  test "preserves an unsupported-font result" do
+    Process.put(:font_discovery_native_result, :unsupported)
+
+    assert Adapter.resolve("Variable Sans", 700, :normal, FakeNative) ==
+             {:error, :unsupported_font}
   end
 
   test "turns unusable or unavailable native results into unavailable errors" do

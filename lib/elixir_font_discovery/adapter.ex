@@ -5,14 +5,16 @@ defmodule ElixirFontDiscovery.Adapter do
 
   @doc false
   @spec resolve(String.t(), number(), ElixirFontDiscovery.style()) ::
-          {:ok, ElixirFontDiscovery.font()} | {:error, :not_found | :unavailable}
+          {:ok, ElixirFontDiscovery.font()}
+          | {:error, :not_found | :unsupported_font | :unavailable}
   def resolve(family, weight, style) do
     resolve(family, weight, style, Native)
   end
 
   @doc false
   @spec resolve(String.t(), number(), ElixirFontDiscovery.style(), module()) ::
-          {:ok, ElixirFontDiscovery.font()} | {:error, :not_found | :unavailable}
+          {:ok, ElixirFontDiscovery.font()}
+          | {:error, :not_found | :unsupported_font | :unavailable}
   def resolve(family, weight, style, native) do
     try do
       case native.resolve(family, weight, style) do
@@ -31,6 +33,9 @@ defmodule ElixirFontDiscovery.Adapter do
 
         {:error, :not_found} ->
           {:error, :not_found}
+
+        {:error, :unsupported_font} ->
+          {:error, :unsupported_font}
 
         _unexpected ->
           {:error, :unavailable}

@@ -44,6 +44,10 @@ Named families return `{:error, :not_found}` when the operating system cannot
 resolve them. Generic names supported by the library are `sans-serif`,
 `system-ui`, `serif`, and `monospace`.
 
+The returned data always describes a static font face. Variable OpenType fonts
+return `{:error, :unsupported_font}` because copying their underlying file does
+not apply the variation coordinates selected by the operating system.
+
 ## Developing the native adapter
 
 Library users do not need Rust. Maintainers working on the native adapter can

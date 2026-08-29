@@ -23,6 +23,6 @@ defmodule ElixirFontDiscovery.Native do
   @doc false
   @spec resolve(String.t(), number(), ElixirFontDiscovery.style()) ::
           {:ok, String.t(), float(), ElixirFontDiscovery.style(), binary()}
-          | {:error, :not_found | :unavailable}
+          | {:error, :not_found | :unsupported_font | :unavailable}
   def resolve(_family, _weight, _style), do: :erlang.nif_error(:nif_not_loaded)
 end
