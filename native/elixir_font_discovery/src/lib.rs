@@ -1,3 +1,4 @@
+use font_kit::error::SelectionError;
 use font_kit::family_name::FamilyName;
 use font_kit::handle::Handle;
 use font_kit::properties::{Properties, Style, Weight};
@@ -23,6 +24,7 @@ mod atoms {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ResolveError {
     NotFound,
+    Unavailable,
     UnsupportedFont,
 }
 
@@ -46,6 +48,7 @@ fn resolve(env: Env<'_>, family: String, weight: f32, style: Atom) -> Term<'_> {
                 .encode(env)
         }
         Err(ResolveError::NotFound) => (atoms::error(), atoms::not_found()).encode(env),
+        Err(ResolveError::Unavailable) => (atoms::error(), atoms::unavailable()).encode(env),
         Err(ResolveError::UnsupportedFont) => {
             (atoms::error(), atoms::unsupported_font()).encode(env)
         }
@@ -71,19 +74,30 @@ fn resolve_font(
     let family_names = requested_family_names(family);
 
     let source = SystemSource::new();
+    let mut found_unavailable_font = false;
     let mut found_unsupported_font = false;
 
     for family_name in family_names {
         let handle = match source.select_best_match(&[family_name], &properties) {
             Ok(handle) => handle,
-            Err(_) => continue,
+            Err(error) => match classify_selection_error(error) {
+                ResolveError::NotFound => continue,
+                error => return Err(error),
+            },
         };
         let font = match handle.load() {
             Ok(font) => font,
-            Err(_) => continue,
+            Err(_) => {
+                found_unavailable_font = true;
+                continue;
+            }
         };
         let data = match standalone_font_data(&handle) {
             Ok(data) => data,
+            Err(ResolveError::Unavailable) => {
+                found_unavailable_font = true;
+                continue;
+            }
             Err(ResolveError::UnsupportedFont) => {
                 found_unsupported_font = true;
                 continue;
@@ -105,10 +119,19 @@ fn resolve_font(
         ));
     }
 
-    if found_unsupported_font {
+    if found_unavailable_font {
+        Err(ResolveError::Unavailable)
+    } else if found_unsupported_font {
         Err(ResolveError::UnsupportedFont)
     } else {
         Err(ResolveError::NotFound)
+    }
+}
+
+fn classify_selection_error(error: SelectionError) -> ResolveError {
+    match error {
+        SelectionError::NotFound => ResolveError::NotFound,
+        SelectionError::CannotAccessSource { .. } => ResolveError::Unavailable,
     }
 }
 
@@ -158,20 +181,20 @@ fn system_ui_family_names() -> Vec<FamilyName> {
 fn standalone_font_data(handle: &Handle) -> Result<Vec<u8>, ResolveError> {
     let data = match handle {
         Handle::Path { path, font_index } => {
-            let data = std::fs::read(path).map_err(|_| ResolveError::NotFound)?;
+            let data = std::fs::read(path).map_err(|_| ResolveError::Unavailable)?;
             extract_collection_face(&data, *font_index as usize)
-                .map_err(|_| ResolveError::NotFound)?
+                .map_err(|_| ResolveError::Unavailable)?
         }
         Handle::Memory { bytes, font_index } => {
             extract_collection_face(bytes.as_ref(), *font_index as usize)
-                .map_err(|_| ResolveError::NotFound)?
+                .map_err(|_| ResolveError::Unavailable)?
         }
     };
 
     match sfnt_has_table(&data, b"fvar") {
         Some(true) => Err(ResolveError::UnsupportedFont),
         Some(false) => Ok(data),
-        None => Err(ResolveError::NotFound),
+        None => Err(ResolveError::Unavailable),
     }
 }
 
@@ -304,8 +327,9 @@ mod tests {
     use font_kit::handle::Handle;
 
     use super::{
-        extract_collection_face, requested_family_names, sfnt_checksum, sfnt_has_table,
-        standalone_font_data, supported_sfnt, FamilyName, ResolveError, SFNT_CHECKSUM_MAGIC,
+        classify_selection_error, extract_collection_face, requested_family_names, sfnt_checksum,
+        sfnt_has_table, standalone_font_data, supported_sfnt, FamilyName, ResolveError,
+        SelectionError, SFNT_CHECKSUM_MAGIC,
     };
 
     #[test]
@@ -321,6 +345,49 @@ mod tests {
         assert!(!supported_sfnt(b"WOFF"));
         assert_eq!(extract_collection_face(b"WOFF", 0), Err(()));
         assert_eq!(extract_collection_face(b"ttcf", 0), Err(()));
+
+        assert_eq!(
+            standalone_font_data(&Handle::Memory {
+                bytes: Arc::new(b"WOFF".to_vec()),
+                font_index: 0,
+            }),
+            Err(ResolveError::Unavailable)
+        );
+    }
+
+    #[test]
+    fn reports_file_and_extraction_failures_as_unavailable() {
+        let missing_path = std::env::temp_dir().join(format!(
+            "elixir-font-discovery-missing-{}",
+            std::process::id()
+        ));
+        assert!(!missing_path.exists());
+        assert_eq!(
+            standalone_font_data(&Handle::Path {
+                path: missing_path,
+                font_index: 0,
+            }),
+            Err(ResolveError::Unavailable)
+        );
+
+        let mut bad_index = vec![0; 16];
+        bad_index[0..4].copy_from_slice(b"ttcf");
+        bad_index[8..12].copy_from_slice(&1_u32.to_be_bytes());
+        assert_eq!(
+            standalone_font_data(&Handle::Memory {
+                bytes: Arc::new(bad_index),
+                font_index: 1,
+            }),
+            Err(ResolveError::Unavailable)
+        );
+
+        assert_eq!(
+            standalone_font_data(&Handle::Memory {
+                bytes: Arc::new(vec![0, 1, 0, 0, 0, 1]),
+                font_index: 0,
+            }),
+            Err(ResolveError::Unavailable)
+        );
     }
 
     #[test]
@@ -356,6 +423,18 @@ mod tests {
         assert_eq!(
             system_ui.first(),
             Some(&FamilyName::Title("Segoe UI".to_owned()))
+        );
+    }
+
+    #[test]
+    fn distinguishes_selection_misses_from_source_failures() {
+        assert_eq!(
+            classify_selection_error(SelectionError::NotFound),
+            ResolveError::NotFound
+        );
+        assert_eq!(
+            classify_selection_error(SelectionError::CannotAccessSource { reason: None }),
+            ResolveError::Unavailable
         );
     }
 

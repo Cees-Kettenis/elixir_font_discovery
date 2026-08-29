@@ -37,6 +37,9 @@ defmodule ElixirFontDiscovery.Adapter do
         {:error, :unsupported_font} ->
           {:error, :unsupported_font}
 
+        {:error, :unavailable} ->
+          {:error, :unavailable}
+
         _unexpected ->
           {:error, :unavailable}
       end
