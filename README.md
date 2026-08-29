@@ -16,7 +16,7 @@ Add `elixir_font_discovery` to your dependencies:
 ```elixir
 def deps do
   [
-    {:elixir_font_discovery, "~> 0.1.0"}
+    {:elixir_font_discovery, "~> 0.2.0"}
   ]
 end
 ```
