@@ -158,8 +158,6 @@ fn system_ui_family_names() -> Vec<FamilyName> {
 #[cfg(target_os = "macos")]
 fn system_ui_family_names() -> Vec<FamilyName> {
     vec![
-        FamilyName::Title(".AppleSystemUIFont".to_owned()),
-        FamilyName::Title("SF Pro".to_owned()),
         FamilyName::Title("Helvetica Neue".to_owned()),
         FamilyName::SansSerif,
     ]
@@ -416,7 +414,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(
             system_ui.first(),
-            Some(&FamilyName::Title(".AppleSystemUIFont".to_owned()))
+            Some(&FamilyName::Title("Helvetica Neue".to_owned()))
         );
 
         #[cfg(target_family = "windows")]
