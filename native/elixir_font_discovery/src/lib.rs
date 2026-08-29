@@ -4,6 +4,9 @@ use font_kit::properties::{Properties, Style, Weight};
 use font_kit::source::SystemSource;
 use rustler::{Atom, Encoder, Env, OwnedBinary, Term};
 
+// The OpenType specification requires every standalone sfnt to sum to this value.
+const SFNT_CHECKSUM_MAGIC: u32 = 0xB1B0_AFBA;
+
 mod atoms {
     rustler::atoms! {
         ok,
@@ -136,9 +139,11 @@ fn extract_collection_face(data: &[u8], font_index: usize) -> Result<Vec<u8>, ()
 
     let mut output = data[face_offset..directory_end].to_vec();
     let mut output_offset = 12 + table_count * 16;
+    let mut head_table = None;
 
     for index in 0..table_count {
         let record = face_offset + 12 + index * 16;
+        let tag = data.get(record..record + 4).ok_or(())?;
         let source_offset = read_u32(data, record + 8).ok_or(())? as usize;
         let length = read_u32(data, record + 12).ok_or(())? as usize;
         let source_end = source_offset.checked_add(length).ok_or(())?;
@@ -152,6 +157,11 @@ fn extract_collection_face(data: &[u8], font_index: usize) -> Result<Vec<u8>, ()
         let new_offset = output_offset as u32;
         output[12 + index * 16 + 8..12 + index * 16 + 12]
             .copy_from_slice(&new_offset.to_be_bytes());
+
+        if tag == b"head" {
+            head_table = Some((output_offset, length));
+        }
+
         output_offset += length;
         output_offset = (output_offset + 3) & !3;
     }
@@ -160,7 +170,39 @@ fn extract_collection_face(data: &[u8], font_index: usize) -> Result<Vec<u8>, ()
         output.push(0);
     }
 
+    let (head_offset, head_length) = head_table.ok_or(())?;
+    set_checksum_adjustment(&mut output, head_offset, head_length)?;
+
     Ok(output)
+}
+
+fn set_checksum_adjustment(
+    font: &mut [u8],
+    head_offset: usize,
+    head_length: usize,
+) -> Result<(), ()> {
+    if head_length < 12 {
+        return Err(());
+    }
+
+    let adjustment_offset = head_offset.checked_add(8).ok_or(())?;
+    let adjustment_end = adjustment_offset.checked_add(4).ok_or(())?;
+    font.get_mut(adjustment_offset..adjustment_end)
+        .ok_or(())?
+        .fill(0);
+
+    let adjustment = SFNT_CHECKSUM_MAGIC.wrapping_sub(sfnt_checksum(font));
+    font[adjustment_offset..adjustment_end].copy_from_slice(&adjustment.to_be_bytes());
+
+    Ok(())
+}
+
+fn sfnt_checksum(data: &[u8]) -> u32 {
+    data.chunks(4).fold(0, |sum, bytes| {
+        let mut word = [0; 4];
+        word[..bytes.len()].copy_from_slice(bytes);
+        sum.wrapping_add(u32::from_be_bytes(word))
+    })
 }
 
 fn supported_sfnt(data: &[u8]) -> bool {
@@ -202,7 +244,8 @@ mod tests {
     use font_kit::handle::Handle;
 
     use super::{
-        extract_collection_face, sfnt_has_table, standalone_font_data, supported_sfnt, ResolveError,
+        extract_collection_face, sfnt_checksum, sfnt_has_table, standalone_font_data,
+        supported_sfnt, ResolveError, SFNT_CHECKSUM_MAGIC,
     };
 
     #[test]
@@ -251,21 +294,31 @@ mod tests {
 
     #[test]
     fn extracts_a_standalone_face_from_a_collection() {
-        let mut collection = vec![0; 60];
+        let mut collection = vec![0; 124];
         collection[0..4].copy_from_slice(b"ttcf");
         collection[8..12].copy_from_slice(&1_u32.to_be_bytes());
         collection[12..16].copy_from_slice(&16_u32.to_be_bytes());
         collection[16..20].copy_from_slice(&[0, 1, 0, 0]);
-        collection[20..22].copy_from_slice(&1_u16.to_be_bytes());
-        collection[28..32].copy_from_slice(b"name");
-        collection[36..40].copy_from_slice(&48_u32.to_be_bytes());
-        collection[40..44].copy_from_slice(&4_u32.to_be_bytes());
-        collection[48..52].copy_from_slice(b"font");
+        collection[20..22].copy_from_slice(&2_u16.to_be_bytes());
+        collection[28..32].copy_from_slice(b"head");
+        collection[36..40].copy_from_slice(&64_u32.to_be_bytes());
+        collection[40..44].copy_from_slice(&54_u32.to_be_bytes());
+        collection[44..48].copy_from_slice(b"name");
+        collection[52..56].copy_from_slice(&120_u32.to_be_bytes());
+        collection[56..60].copy_from_slice(&4_u32.to_be_bytes());
+        collection[64..68].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+        collection[72..76].copy_from_slice(&0x1234_5678_u32.to_be_bytes());
+        collection[76..80].copy_from_slice(&0x5F0F_3CF5_u32.to_be_bytes());
+        collection[82..84].copy_from_slice(&1_000_u16.to_be_bytes());
+        collection[120..124].copy_from_slice(b"font");
 
         let extracted = extract_collection_face(&collection, 0).expect("valid collection face");
 
         assert_eq!(&extracted[0..4], &[0, 1, 0, 0]);
-        assert_eq!(&extracted[20..24], &(28_u32.to_be_bytes()));
-        assert_eq!(&extracted[28..32], b"font");
+        assert_eq!(&extracted[20..24], &(44_u32.to_be_bytes()));
+        assert_eq!(&extracted[36..40], &(100_u32.to_be_bytes()));
+        assert_eq!(&extracted[100..104], b"font");
+        assert_ne!(&extracted[52..56], &0x1234_5678_u32.to_be_bytes());
+        assert_eq!(sfnt_checksum(&extracted), SFNT_CHECKSUM_MAGIC);
     }
 }
