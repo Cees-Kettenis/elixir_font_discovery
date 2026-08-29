@@ -44,6 +44,10 @@ Named families return `{:error, :not_found}` when the operating system cannot
 resolve them. Generic names supported by the library are `sans-serif`,
 `system-ui`, `serif`, and `monospace`.
 
+`system-ui` tries platform user-interface families before the generic
+sans-serif fallback. This includes Segoe UI on Windows, Apple system families
+on macOS, and the standard Fontconfig UI candidates on Linux.
+
 The returned data always describes a static font face. Variable OpenType fonts
 return `{:error, :unsupported_font}` because copying their underlying file does
 not apply the variation coordinates selected by the operating system.

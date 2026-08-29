@@ -11,6 +11,14 @@ defmodule ElixirFontDiscoveryTest do
     assert <<0, 1, 0, 0, _rest::binary>> = font.data
   end
 
+  test "resolves the platform user-interface generic" do
+    assert {:ok, font} = ElixirFontDiscovery.resolve("system-ui")
+    assert font.family != ""
+    assert font.weight > 0
+    assert font.style in [:normal, :italic, :oblique]
+    assert byte_size(font.data) > 0
+  end
+
   test "resolves a requested weight and style" do
     assert {:ok, font} = ElixirFontDiscovery.resolve("sans-serif", 700, :italic)
     assert font.family != ""

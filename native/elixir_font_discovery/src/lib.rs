@@ -68,31 +68,91 @@ fn resolve_font(
     let mut properties = Properties::new();
     properties.weight(Weight(weight)).style(requested_style);
 
-    let family_name = match family.to_ascii_lowercase().as_str() {
-        "serif" => FamilyName::Serif,
-        "sans-serif" | "system-ui" => FamilyName::SansSerif,
-        "monospace" => FamilyName::Monospace,
-        _ => FamilyName::Title(family),
-    };
+    let family_names = requested_family_names(family);
 
-    let handle = SystemSource::new()
-        .select_best_match(&[family_name], &properties)
-        .map_err(|_| ResolveError::NotFound)?;
-    let font = handle.load().map_err(|_| ResolveError::NotFound)?;
-    let data = standalone_font_data(&handle)?;
-    let actual_properties = font.properties();
-    let actual_style = match actual_properties.style {
-        Style::Italic => atoms::italic(),
-        Style::Oblique => atoms::oblique(),
-        Style::Normal => atoms::normal(),
-    };
+    let source = SystemSource::new();
+    let mut found_unsupported_font = false;
 
-    Ok((
-        font.family_name(),
-        actual_properties.weight.0,
-        actual_style,
-        data,
-    ))
+    for family_name in family_names {
+        let handle = match source.select_best_match(&[family_name], &properties) {
+            Ok(handle) => handle,
+            Err(_) => continue,
+        };
+        let font = match handle.load() {
+            Ok(font) => font,
+            Err(_) => continue,
+        };
+        let data = match standalone_font_data(&handle) {
+            Ok(data) => data,
+            Err(ResolveError::UnsupportedFont) => {
+                found_unsupported_font = true;
+                continue;
+            }
+            Err(ResolveError::NotFound) => continue,
+        };
+        let actual_properties = font.properties();
+        let actual_style = match actual_properties.style {
+            Style::Italic => atoms::italic(),
+            Style::Oblique => atoms::oblique(),
+            Style::Normal => atoms::normal(),
+        };
+
+        return Ok((
+            font.family_name(),
+            actual_properties.weight.0,
+            actual_style,
+            data,
+        ));
+    }
+
+    if found_unsupported_font {
+        Err(ResolveError::UnsupportedFont)
+    } else {
+        Err(ResolveError::NotFound)
+    }
+}
+
+fn requested_family_names(family: String) -> Vec<FamilyName> {
+    match family.to_ascii_lowercase().as_str() {
+        "serif" => vec![FamilyName::Serif],
+        "sans-serif" => vec![FamilyName::SansSerif],
+        "system-ui" => system_ui_family_names(),
+        "monospace" => vec![FamilyName::Monospace],
+        _ => vec![FamilyName::Title(family)],
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn system_ui_family_names() -> Vec<FamilyName> {
+    vec![
+        FamilyName::Title("Cantarell".to_owned()),
+        FamilyName::Title("Noto Sans UI".to_owned()),
+        FamilyName::Title("Segoe UI".to_owned()),
+        FamilyName::SansSerif,
+    ]
+}
+
+#[cfg(target_os = "macos")]
+fn system_ui_family_names() -> Vec<FamilyName> {
+    vec![
+        FamilyName::Title(".AppleSystemUIFont".to_owned()),
+        FamilyName::Title("SF Pro".to_owned()),
+        FamilyName::Title("Helvetica Neue".to_owned()),
+        FamilyName::SansSerif,
+    ]
+}
+
+#[cfg(target_family = "windows")]
+fn system_ui_family_names() -> Vec<FamilyName> {
+    vec![
+        FamilyName::Title("Segoe UI".to_owned()),
+        FamilyName::SansSerif,
+    ]
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_family = "windows")))]
+fn system_ui_family_names() -> Vec<FamilyName> {
+    vec![FamilyName::SansSerif]
 }
 
 fn standalone_font_data(handle: &Handle) -> Result<Vec<u8>, ResolveError> {
@@ -244,8 +304,8 @@ mod tests {
     use font_kit::handle::Handle;
 
     use super::{
-        extract_collection_face, sfnt_checksum, sfnt_has_table, standalone_font_data,
-        supported_sfnt, ResolveError, SFNT_CHECKSUM_MAGIC,
+        extract_collection_face, requested_family_names, sfnt_checksum, sfnt_has_table,
+        standalone_font_data, supported_sfnt, FamilyName, ResolveError, SFNT_CHECKSUM_MAGIC,
     };
 
     #[test]
@@ -269,6 +329,33 @@ mod tests {
         assert_eq!(
             extract_collection_face(b"OTTOfont", 0),
             Ok(b"OTTOfont".to_vec())
+        );
+    }
+
+    #[test]
+    fn maps_system_ui_separately_from_sans_serif() {
+        let system_ui = requested_family_names("system-ui".to_owned());
+        let sans_serif = requested_family_names("sans-serif".to_owned());
+
+        assert_ne!(system_ui, sans_serif);
+        assert_eq!(system_ui.last(), Some(&FamilyName::SansSerif));
+
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            system_ui.first(),
+            Some(&FamilyName::Title("Cantarell".to_owned()))
+        );
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            system_ui.first(),
+            Some(&FamilyName::Title(".AppleSystemUIFont".to_owned()))
+        );
+
+        #[cfg(target_family = "windows")]
+        assert_eq!(
+            system_ui.first(),
+            Some(&FamilyName::Title("Segoe UI".to_owned()))
         );
     }
 
